@@ -58,7 +58,7 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 		ber, err := parseField(packet)
 
 		if err != nil {
-			log.Error("Unable to parse packet header: %s\n", err.Error())
+			log.Error("Unable to parse packet header: %s", err.Error())
 			return nil, err
 		}
 
@@ -186,7 +186,7 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 
 		}
 	} else {
-		return nil, fmt.Errorf("Invalid packet header\n")
+		return nil, fmt.Errorf("Invalid packet header")
 	}
 
 	return response, nil
@@ -240,7 +240,7 @@ func parseField(data []byte) (*RawBER, error) {
 	ber.BERVariable, err = decodeValue(ber.Type, ber.Data)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to decode value: %s\n", err.Error())
+		return nil, fmt.Errorf("Unable to decode value: %s", err.Error())
 	}
 
 	return ber, nil
@@ -338,14 +338,14 @@ func marshalOID(oid string) ([]byte, error) {
 	for i := 0; i < len(oidParts); i++ {
 		oidBytes[i], err = strconv.Atoi(oidParts[i])
 		if err != nil {
-			return nil, fmt.Errorf("Unable to parse OID: %s\n", err.Error())
+			return nil, fmt.Errorf("Unable to parse OID: %s", err.Error())
 		}
 	}
 
 	mOid, err := marshalObjectIdentifier(oidBytes)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to marshal OID: %s\n", err.Error())
+		return nil, fmt.Errorf("Unable to marshal OID: %s", err.Error())
 	}
 
 	return mOid, err
