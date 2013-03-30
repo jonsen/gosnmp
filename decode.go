@@ -64,7 +64,7 @@ func decodeValue(valueType Asn1BER, data []byte) (retVal *Variable, err error) {
 		retVal.Value, _ = parseObjectIdentifier(data)
 	// Counter32
 	case Counter32:
-		ret, err := parseInt(data)
+		ret, err := parseInt64(data)
 		if err != nil {
 			break
 		}
