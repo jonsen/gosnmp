@@ -27,7 +27,7 @@ func NewGoSNMP(target, community string, version SnmpVersion, timeout int64) (*G
 	conn, err := net.DialTimeout("udp", fmt.Sprintf("%s:161", target), time.Duration(timeout)*time.Second)
 
 	if err != nil {
-		return nil, fmt.Errorf("Error establishing connection to host: %s\n", err.Error())
+		return nil, fmt.Errorf("Error establishing connection to host: %s", err.Error())
 	}
 	s := &GoSNMP{target, community, version, time.Duration(timeout) * time.Second, conn, l.CreateLogger(false, false)}
 
@@ -83,21 +83,21 @@ func (x *GoSNMP) sendPacket(packet *SnmpPacket) (*SnmpPacket, error) {
 	// Send the packet!
 	_, err = x.conn.Write(fBuf)
 	if err != nil {
-		return nil, fmt.Errorf("Error writing to socket: %s\n", err.Error())
+		return nil, fmt.Errorf("Error writing to socket: %s", err.Error())
 	}
 	// Try to read the response
 	resp := make([]byte, 2048, 2048)
 	n, err := x.conn.Read(resp)
 
 	if err != nil {
-		return nil, fmt.Errorf("Error reading from UDP: %s\n", err.Error())
+		return nil, fmt.Errorf("Error reading from UDP: %s", err.Error())
 	}
 
 	// Unmarshal the read bytes
 	pdu, err := Unmarshal(resp[:n])
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to decode packet: %s\n", err.Error())
+		return nil, fmt.Errorf("Unable to decode packet: %s", err.Error())
 	} else {
 		if len(pdu.Variables) < 1 {
 			return nil, fmt.Errorf("No responses received.")
@@ -136,7 +136,7 @@ func (x *GoSNMP) Debug(data []byte) (*SnmpPacket, error) {
 	packet, err := Unmarshal(data)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to decode packet: %s\n", err.Error())
+		return nil, fmt.Errorf("Unable to decode packet: %s", err.Error())
 	}
 	return packet, nil
 }
