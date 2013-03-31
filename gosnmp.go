@@ -22,9 +22,9 @@ type GoSNMP struct {
 
 // Creates a new SNMP Client. Target is the IP address, Community the SNMP Community String and Version the SNMP version.
 // Currently only v2c is supported. Timeout parameter is measured in seconds.
-func NewGoSNMP(target, community string, version SnmpVersion, timeout int64) (*GoSNMP, error) {
+func NewGoSNMP(target string, port int, community string, version SnmpVersion, timeout int64) (*GoSNMP, error) {
 	// Open a UDP connection to the target
-	conn, err := net.DialTimeout("udp", fmt.Sprintf("%s:161", target), time.Duration(timeout)*time.Second)
+	conn, err := net.DialTimeout("udp", fmt.Sprintf("%s:%d", target, port), time.Duration(timeout)*time.Second)
 
 	if err != nil {
 		return nil, fmt.Errorf("Error establishing connection to host: %s", err.Error())
@@ -90,7 +90,10 @@ func (x *GoSNMP) sendPacket(packet *SnmpPacket) (*SnmpPacket, error) {
 	n, err := x.conn.Read(resp)
 
 	if err != nil {
-		return nil, fmt.Errorf("Error reading from UDP: %s", err.Error())
+        n, err = x.conn.Read(resp)
+        if err != nil {
+    		return nil, fmt.Errorf("Error reading from UDP: %s", err.Error())
+        }
 	}
 
 	// Unmarshal the read bytes
@@ -125,7 +128,7 @@ func (x *GoSNMP) GetNext(oid string) (*SnmpPacket, error) {
 	packet.Error = 0
 	packet.ErrorIndex = 0
 	packet.RequestType = GetNextRequest
-	packet.Version = 1 // version 2
+	packet.Version = x.Version // version 2
 	packet.Variables = []SnmpPDU{SnmpPDU{Name: oid, Type: Null}}
 
 	return x.sendPacket(packet)
@@ -157,7 +160,7 @@ func (x *GoSNMP) Get(oid string) (*SnmpPacket, error) {
 	packet.Error = 0
 	packet.ErrorIndex = 0
 	packet.RequestType = GetRequest
-	packet.Version = 1 // version 2
+	packet.Version = x.Version // version 2
 	packet.Variables = []SnmpPDU{SnmpPDU{Name: oid, Type: Null}}
 
 	return x.sendPacket(packet)
@@ -179,7 +182,7 @@ func (x *GoSNMP) GetMulti(oids []string) (*SnmpPacket, error) {
 	packet.Error = 0
 	packet.ErrorIndex = 0
 	packet.RequestType = GetRequest
-	packet.Version = 1 // version 2
+	packet.Version = x.Version // version 2
 	packet.Variables = make([]SnmpPDU, len(oids))
 
 	for i, oid := range oids {
