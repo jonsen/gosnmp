@@ -2,10 +2,12 @@ package gosnmp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
-	l "github.com/alouca/gologger"
 	"strconv"
 	"strings"
+
+	l "github.com/alouca/gologger"
 )
 
 type SnmpVersion uint8
@@ -25,13 +27,15 @@ func (s SnmpVersion) String() string {
 }
 
 type SnmpPacket struct {
-	Version     SnmpVersion
-	Community   string
-	RequestType Asn1BER
-	RequestID   uint8
-	Error       uint8
-	ErrorIndex  uint8
-	Variables   []SnmpPDU
+	Version        SnmpVersion
+	Community      string
+	RequestType    Asn1BER
+	RequestID      uint32
+	Error          uint8
+	ErrorIndex     uint8
+	NonRepeaters   uint8
+	MaxRepetitions uint8
+	Variables      []SnmpPDU
 }
 
 type SnmpPDU struct {
@@ -58,7 +62,7 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 		ber, err := parseField(packet)
 
 		if err != nil {
-			log.Error("Unable to parse packet header: %s", err.Error())
+			log.Error("Unable to parse packet header: %s\n", err.Error())
 			return nil, err
 		}
 
@@ -75,10 +79,14 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 		cursor += rawVersion.DataLength + rawVersion.HeaderLength
 		if version, ok := rawVersion.BERVariable.Value.(int); ok {
 			response.Version = SnmpVersion(version)
+			log.Debug("Parsed Version %d\n", version)
 		}
 
 		// Parse community
 		rawCommunity, err := parseField(packet[cursor:])
+		if err != nil {
+			log.Debug("Unable to parse Community Field: %s\n", err)
+		}
 		cursor += rawCommunity.DataLength + rawCommunity.HeaderLength
 
 		if community, ok := rawCommunity.BERVariable.Value.(string); ok {
@@ -91,10 +99,14 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 		if err != nil {
 			log.Debug("Unable to parse SNMP PDU: %s\n", err.Error())
 		}
+		response.RequestType = rawPDU.Type
 
 		switch rawPDU.Type {
-		case GetResponse:
-			log.Debug("SNMP Packet is GetResponse\n")
+		default:
+			log.Debug("Unsupported SNMP Packet Type %s\n", rawPDU.Type.String())
+			log.Debug("PDU Size is %d\n", rawPDU.DataLength)
+		case GetRequest, GetResponse, GetBulkRequest:
+			log.Debug("SNMP Packet is %s\n", rawPDU.Type.String())
 			log.Debug("PDU Size is %d\n", rawPDU.DataLength)
 			cursor += rawPDU.HeaderLength
 
@@ -107,7 +119,7 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 
 			cursor += rawRequestId.DataLength + rawRequestId.HeaderLength
 			if requestid, ok := rawRequestId.BERVariable.Value.(int); ok {
-				response.RequestID = uint8(requestid)
+				response.RequestID = uint32(requestid)
 				log.Debug("Parsed Request ID: %d\n", requestid)
 			}
 
@@ -186,7 +198,7 @@ func Unmarshal(packet []byte) (*SnmpPacket, error) {
 
 		}
 	} else {
-		return nil, fmt.Errorf("Invalid packet header")
+		return nil, fmt.Errorf("Invalid packet header\n")
 	}
 
 	return response, nil
@@ -240,7 +252,7 @@ func parseField(data []byte) (*RawBER, error) {
 	ber.BERVariable, err = decodeValue(ber.Type, ber.Data)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to decode value: %s", err.Error())
+		return nil, fmt.Errorf("Unable to decode value: %s\n", err.Error())
 	}
 
 	return ber, nil
@@ -262,7 +274,24 @@ func (packet *SnmpPacket) marshal() ([]byte, error) {
 	snmpPduBuffer := make([]byte, 0, 1024)
 	snmpPduBuf := bytes.NewBuffer(snmpPduBuffer)
 
-	snmpPduBuf.Write([]byte{byte(packet.RequestType), 0, 2, 1, packet.RequestID, 2, 1, packet.Error, 2, 1, packet.ErrorIndex, byte(Sequence), 0})
+	requestIDBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(requestIDBytes, packet.RequestID)
+	snmpPduBuf.Write(append([]byte{byte(packet.RequestType), 0, 2, 4}, requestIDBytes...))
+
+	switch packet.RequestType {
+	case GetBulkRequest:
+		snmpPduBuf.Write([]byte{
+			2, 1, packet.NonRepeaters,
+			2, 1, packet.MaxRepetitions,
+		})
+	default:
+		snmpPduBuf.Write([]byte{
+			2, 1, packet.Error,
+			2, 1, packet.ErrorIndex,
+		})
+	}
+
+	snmpPduBuf.Write([]byte{byte(Sequence), 0})
 
 	pduLength := 0
 	for _, varlist := range packet.Variables {
@@ -277,13 +306,13 @@ func (packet *SnmpPacket) marshal() ([]byte, error) {
 
 	pduBytes := snmpPduBuf.Bytes()
 	// Varbind list length
-	pduBytes[12] = byte(pduLength)
+	pduBytes[15] = byte(pduLength)
 	// SNMP PDU length (PDU header + varbind list length)
-	pduBytes[1] = byte(pduLength + 11)
+	pduBytes[1] = byte(pduLength + 14)
 
 	buf.Write(pduBytes)
 
-	// Write the 
+	// Write the
 	//buf.Write([]byte{packet.RequestType, uint8(17 + len(mOid)), 2, 1, 1, 2, 1, 0, 2, 1, 0, 0x30, uint8(6 + len(mOid)), 0x30, uint8(4 + len(mOid)), 6, uint8(len(mOid))})
 	//buf.Write(mOid)
 	//buf.Write([]byte{5, 0})
@@ -320,10 +349,11 @@ func marshalPDU(pdu *SnmpPDU) ([]byte, error) {
 }
 
 func oidToString(oid []int) (ret string) {
-	for _, i := range oid {
-		ret = ret + fmt.Sprintf(".%d", i)
+	values := make([]interface{}, len(oid))
+	for i, v := range oid {
+		values[i] = v
 	}
-	return
+	return fmt.Sprintf(strings.Repeat(".%d", len(oid)), values...)
 }
 
 func marshalOID(oid string) ([]byte, error) {
@@ -338,14 +368,14 @@ func marshalOID(oid string) ([]byte, error) {
 	for i := 0; i < len(oidParts); i++ {
 		oidBytes[i], err = strconv.Atoi(oidParts[i])
 		if err != nil {
-			return nil, fmt.Errorf("Unable to parse OID: %s", err.Error())
+			return nil, fmt.Errorf("Unable to parse OID: %s\n", err.Error())
 		}
 	}
 
 	mOid, err := marshalObjectIdentifier(oidBytes)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to marshal OID: %s", err.Error())
+		return nil, fmt.Errorf("Unable to marshal OID: %s\n", err.Error())
 	}
 
 	return mOid, err
